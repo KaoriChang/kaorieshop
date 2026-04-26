@@ -426,18 +426,31 @@ function restartAutoPlay() {
   clearInterval(slideTimer); startAutoPlay()
 }
 
-// ── 商品資料 ──
-const PRODUCTS = [
-  { id:'e1', name:'經典蝴蝶結', desc:'透明的金色蝴蝶結耳環，絕對百搭', price:390, img:'P1510827.JPG', cat:'earring', tag:'新品', priority:1 },
-  { id:'e2', name:'經典垂墜蝴蝶結', desc:'透明的金色蝴蝶結耳環，運動休閒或甜美風格都適合', price:390, img:'P1510832.JPG', cat:'earring', tag:'', priority:2 },
-  { id:'c1', name:'文創商品', desc:'獨特文創設計，敬請期待', price:0, img:'', cat:'creative', tag:'即將上架', priority:99, comingSoon:true },
-]
-
+// ── 商品資料（從 Supabase 動態載入）──
+let PRODUCTS = []
 let cart = JSON.parse(localStorage.getItem('kaori_cart') || '[]')
 let currentFilter = 'all'
 function saveCart() { localStorage.setItem('kaori_cart', JSON.stringify(cart)) }
 
 const catLabel = {earring:'耳環',clip:'耳夾',bracelet:'手鍊',necklace:'項鍊',ring:'戒指',hair:'髮飾',creative:'文創'}
+const BASE_URL = 'https://kaorichang.github.io/kaorieshop/'
+
+function imgSrc(url) {
+  if (!url) return null
+  if (url.startsWith('http')) return url
+  return BASE_URL + url
+}
+
+async function loadProducts() {
+  const { data, error } = await db.from('products').select('*').eq('is_available', true).order('priority').order('created_at', { ascending: false })
+  if (error) { console.error('載入商品失敗', error); return }
+  PRODUCTS = (data || []).map(p => ({
+    id: p.id, name: p.name, desc: p.description || '', price: p.price,
+    img: p.image_url ? imgSrc(p.image_url) : null,
+    cat: p.category, tag: p.tag || '', priority: p.priority || 0,
+  }))
+  renderProducts(currentFilter)
+}
 
 function renderProducts(filter = 'all') {
   const items = filter === 'all' ? PRODUCTS : PRODUCTS.filter(p => p.cat === filter)
@@ -548,7 +561,7 @@ function showToast(msg) { const t=document.getElementById('toast'); t.textConten
 
 initSlideshow()
 updateCount()
-renderProducts()
+loadProducts()
 </script>
 </body>
 </html>
