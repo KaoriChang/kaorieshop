@@ -141,6 +141,22 @@ tr:hover td { background: var(--bg); }
 .spinner { width: 14px; height: 14px; border: 2px solid rgba(200,169,110,0.3); border-top-color: var(--gold-light); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── UPLOAD ── */
+.upload-area {
+  border: 2px dashed var(--border); border-radius: 12px; padding: 28px 20px;
+  text-align: center; cursor: pointer; transition: all .2s; background: var(--bg);
+}
+.upload-area:hover, .upload-area.drag-over { border-color: var(--gold); background: var(--gold-pale); }
+.upload-icon { font-size: 32px; margin-bottom: 8px; }
+.upload-text { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.upload-text span { font-size: 12px; color: var(--border); }
+.upload-progress { margin-top: 10px; }
+.progress-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
+.progress-fill { height: 100%; background: var(--gold); border-radius: 2px; transition: width .3s; width: 0%; }
+.progress-text { font-size: 12px; color: var(--muted); text-align: center; }
+.img-url-toggle { font-size: 11px; color: var(--muted); text-align: center; margin-top: 10px; cursor: pointer; letter-spacing: 0.5px; text-decoration: underline; text-underline-offset: 3px; }
+.img-url-toggle:hover { color: var(--gold); }
+
 @media (max-width: 768px) {
   .stats-row { grid-template-columns: repeat(2,1fr); }
   .admin-body { padding: 20px 16px; }
@@ -252,9 +268,19 @@ tr:hover td { background: var(--bg); }
         </div>
       </div>
       <div class="form-group">
-        <label>照片網址</label>
-        <input type="text" id="fImg" placeholder="P1510827.JPG 或完整網址" oninput="previewImg()">
+        <label>商品照片</label>
+        <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()" ondragover="dragOver(event)" ondrop="dropFile(event)">
+          <div class="upload-icon">📷</div>
+          <div class="upload-text">點擊上傳或拍照<br><span>也可以直接拖曳圖片到這裡</span></div>
+          <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFile(event)" style="display:none">
+        </div>
+        <div class="upload-progress" id="uploadProgress" style="display:none">
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-text" id="progressText">上傳中...</div>
+        </div>
         <img class="img-preview" id="imgPreview">
+        <div class="img-url-toggle" onclick="toggleUrlInput()">或輸入圖片網址</div>
+        <input type="text" id="fImg" placeholder="P1510827.JPG 或完整網址" oninput="previewImgUrl()" style="display:none;margin-top:8px">
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -389,6 +415,10 @@ function openModal(id = null) {
   document.getElementById('modalTitle').textContent = id ? '編輯商品' : '新增商品'
   document.getElementById('formErr').classList.remove('show')
   document.getElementById('imgPreview').classList.remove('show')
+  document.getElementById('uploadProgress').style.display = 'none'
+  document.getElementById('fImg').style.display = 'none'
+  document.getElementById('fileInput').value = ''
+  uploadedImageUrl = null
 
   if (id) {
     const p = products.find(x => x.id === id)
@@ -416,13 +446,76 @@ function openModal(id = null) {
 
 function closeModal() { document.getElementById('modalBg').classList.remove('open') }
 
-function previewImg() {
+let uploadedImageUrl = null
+
+function toggleUrlInput() {
+  const input = document.getElementById('fImg')
+  input.style.display = input.style.display === 'none' ? 'block' : 'none'
+}
+
+function previewImgUrl() {
   const val = document.getElementById('fImg').value.trim()
   const prev = document.getElementById('imgPreview')
   if (!val) { prev.classList.remove('show'); return }
   prev.src = imgSrc(val)
   prev.classList.add('show')
   prev.onerror = () => prev.classList.remove('show')
+  uploadedImageUrl = null
+}
+
+function previewImg() {
+  previewImgUrl()
+}
+
+function dragOver(e) {
+  e.preventDefault()
+  document.getElementById('uploadArea').classList.add('drag-over')
+}
+
+function dropFile(e) {
+  e.preventDefault()
+  document.getElementById('uploadArea').classList.remove('drag-over')
+  const file = e.dataTransfer.files[0]
+  if (file && file.type.startsWith('image/')) uploadToStorage(file)
+}
+
+function handleFile(e) {
+  const file = e.target.files[0]
+  if (file) uploadToStorage(file)
+}
+
+async function uploadToStorage(file) {
+  const ext = file.name.split('.').pop().toLowerCase()
+  const fileName = `product_${Date.now()}.${ext}`
+  const progressWrap = document.getElementById('uploadProgress')
+  const progressFill = document.getElementById('progressFill')
+  const progressText = document.getElementById('progressText')
+  const prev = document.getElementById('imgPreview')
+
+  progressWrap.style.display = 'block'
+  progressFill.style.width = '30%'
+  progressText.textContent = '上傳中...'
+
+  const { data, error } = await db.storage.from('products').upload(fileName, file, {
+    cacheControl: '3600', upsert: false
+  })
+
+  if (error) {
+    progressWrap.style.display = 'none'
+    showToast('上傳失敗：' + error.message)
+    return
+  }
+
+  progressFill.style.width = '100%'
+  progressText.textContent = '上傳完成！'
+  setTimeout(() => { progressWrap.style.display = 'none' }, 1200)
+
+  const { data: urlData } = db.storage.from('products').getPublicUrl(fileName)
+  uploadedImageUrl = urlData.publicUrl
+  prev.src = uploadedImageUrl
+  prev.classList.add('show')
+  prev.onerror = () => prev.classList.remove('show')
+  document.getElementById('fImg').value = uploadedImageUrl
 }
 
 async function saveProduct() {
