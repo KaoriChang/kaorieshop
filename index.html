@@ -155,6 +155,34 @@ nav {
   overflow: hidden;
 }
 .product-img img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ── 商品卡輪播 ── */
+.card-slides { position: relative; width: 100%; height: 100%; }
+.card-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 0.5s ease; }
+.card-slide.active { opacity: 1; }
+.card-slide img { width: 100%; height: 100%; object-fit: cover; }
+.card-slide-dots {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 4px; z-index: 5;
+}
+.card-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(255,255,255,0.5); border: none; padding: 0; cursor: pointer; transition: all .3s;
+}
+.card-dot.active { background: white; width: 14px; border-radius: 3px; }
+.card-arrows { opacity: 0; transition: opacity .2s; }
+.product-card:hover .card-arrows { opacity: 1; }
+.card-prev, .card-next {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(255,255,255,0.8); border: none; cursor: pointer;
+  font-size: 12px; color: var(--brand); display: flex; align-items: center; justify-content: center;
+  z-index: 5; transition: background .2s;
+}
+.card-prev { left: 8px; }
+.card-next { right: 8px; }
+.card-prev:hover, .card-next:hover { background: white; }
+
 .product-badge {
   position: absolute; top: 12px; left: 12px;
   background: var(--brand); color: var(--gold-light); font-size: 9px;
@@ -447,21 +475,68 @@ async function loadProducts() {
   PRODUCTS = (data || []).map(p => ({
     id: p.id, name: p.name, desc: p.description || '', price: p.price,
     img: p.image_url ? imgSrc(p.image_url) : null,
+    images: (p.images || []).map(url => imgSrc(url)),
     cat: p.category, tag: p.tag || '', priority: p.priority || 0,
   }))
   renderProducts(currentFilter)
 }
 
+// ── 商品卡輪播 ──────────────────────────────────
+const cardTimers = {}
+
+function initCardSlide(pid, total) {
+  if (total <= 1) return
+  let cur = 0
+  function go(n) {
+    const slides = document.querySelectorAll(`.card-slide[data-pid="${pid}"]`)
+    const dots = document.querySelectorAll(`.card-dot[data-pid="${pid}"]`)
+    if (!slides.length) return
+    slides[cur].classList.remove('active')
+    dots[cur]?.classList.remove('active')
+    cur = (n + total) % total
+    slides[cur].classList.add('active')
+    dots[cur]?.classList.add('active')
+  }
+  cardTimers[pid] = setInterval(() => go(cur + 1), 2800)
+  window[`cardGo_${pid}`] = (dir) => {
+    clearInterval(cardTimers[pid])
+    go(cur + dir)
+    cardTimers[pid] = setInterval(() => go(cur + 1), 2800)
+  }
+}
+
 function renderProducts(filter = 'all') {
+  // Clear existing card timers
+  Object.values(cardTimers).forEach(t => clearInterval(t))
+
   const items = filter === 'all' ? PRODUCTS : PRODUCTS.filter(p => p.cat === filter)
   if (items.length === 0) {
     document.getElementById('grid').innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:60px 0;color:var(--muted);font-size:13px;letter-spacing:2px;text-transform:uppercase">此分類商品即將上架</div>`
     return
   }
-  document.getElementById('grid').innerHTML = items.map(p => `
+  document.getElementById('grid').innerHTML = items.map(p => {
+    const imgs = p.images && p.images.length > 0 ? p.images : (p.img ? [p.img] : [])
+    const multiImg = imgs.length > 1
+
+    const imgHTML = imgs.length === 0
+      ? '🌸'
+      : multiImg
+        ? `<div class="card-slides">
+            ${imgs.map((url, i) => `<div class="card-slide${i===0?' active':''}" data-pid="${p.id}"><img src="${url}" alt="${p.name}" loading="lazy"></div>`).join('')}
+            <div class="card-slide-dots">
+              ${imgs.map((_, i) => `<button class="card-dot${i===0?' active':''}" data-pid="${p.id}" onclick="event.stopPropagation();window.cardGo_${p.id}(${i}-0)"></button>`).join('')}
+            </div>
+            <div class="card-arrows">
+              <button class="card-prev" onclick="event.stopPropagation();window.cardGo_${p.id}(-1)">‹</button>
+              <button class="card-next" onclick="event.stopPropagation();window.cardGo_${p.id}(1)">›</button>
+            </div>
+          </div>`
+        : `<img src="${imgs[0]}" alt="${p.name}" loading="lazy">`
+
+    return `
     <div class="product-card${p.comingSoon?' coming-soon':''}">
       <div class="product-img">
-        ${p.img ? `<img src="${p.img}" alt="${p.name}" loading="lazy">` : '🌸'}
+        ${imgHTML}
         ${p.tag ? `<div class="product-badge">${p.tag}</div>` : ''}
       </div>
       <div class="product-body">
@@ -475,7 +550,14 @@ function renderProducts(filter = 'all') {
                <button class="add-btn" id="btn_${p.id}" onclick="addToCart('${p.id}')">加入</button>`}
         </div>
       </div>
-    </div>`).join('')
+    </div>`
+  }).join('')
+
+  // Init card slideshows after render
+  items.forEach(p => {
+    const imgs = p.images && p.images.length > 0 ? p.images : (p.img ? [p.img] : [])
+    if (imgs.length > 1) initCardSlide(p.id, imgs.length)
+  })
 }
 
 function filterBy(el, cat) {
