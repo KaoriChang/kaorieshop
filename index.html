@@ -311,9 +311,12 @@ footer span { color: var(--gold); }
     <a href="#products">文創</a>
     <a href="#">關於 Kaori</a>
   </div>
-  <button class="cart-btn" onclick="openCart()">
-    購物袋 <span class="cart-count" id="cartCount">0</span>
-  </button>
+  <div style="display:flex;align-items:center;gap:10px">
+    <a id="memberNavBtn" href="member.html" style="padding:8px 18px;border:1px solid var(--border);border-radius:100px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-decoration:none;transition:all .2s" onmouseover="this.style.borderColor='var(--gold)';this.style.color='var(--gold)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">會員登入</a>
+    <button class="cart-btn" onclick="openCart()">
+      購物袋 <span class="cart-count" id="cartCount">0</span>
+    </button>
+  </div>
 </nav>
 
 <section class="hero" id="home">
@@ -595,7 +598,16 @@ function renderCart() {
   foot.style.display='block'
 }
 
-function openForm() { closeCart(); renderOrderSummary(); document.getElementById('modalBg').classList.add('open') }
+function openForm() {
+  closeCart(); renderOrderSummary()
+  // 如果會員已登入，預填資料
+  if (window._memberProfile) {
+    const m = window._memberProfile
+    const f = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val }
+    f('f_name', m.nickname); f('f_phone', m.phone); f('f_email', m.email); f('f_addr', m.default_address)
+  }
+  document.getElementById('modalBg').classList.add('open')
+}
 function closeForm() { document.getElementById('modalBg').classList.remove('open') }
 document.getElementById('modalBg').addEventListener('click', e=>{ if(e.target===document.getElementById('modalBg')) closeForm() })
 
@@ -615,14 +627,34 @@ async function submitOrder() {
   if (!name||!phone||!email||!addr) { errEl.textContent='請填寫所有必填欄位'; errEl.classList.add('show'); return }
   const btn=document.getElementById('submitBtn'); btn.disabled=true; btn.innerHTML='<div class="spinner"></div> 送出中...'
   try {
+    // 檢查是否為登入會員
+    const { data: { session } } = await db.auth.getSession()
+    const memberId = session?.user?.id || null
+
     const {data:custData,error:custErr}=await db.from('customers').upsert({name},{onConflict:'name',ignoreDuplicates:false}).select('id').single()
     if (custErr) throw custErr
+
+    const orderTotal = cart.reduce((a,b)=>a+b.price*b.qty,0)
+
     const {error:orderErr}=await db.from('orders').insert(cart.map(item=>({
-      customer_id:custData.id, text:item.name,
+      customer_id: memberId || custData.id,
+      text:item.name,
       note:[addr&&`地址：${addr}`,pay&&`付款：${pay}`,time!=='不指定'&&`時段：${time}`,note&&`備註：${note}`,`聯絡：${phone} / ${email}`].filter(Boolean).join(' ｜ '),
       status:'pending', price:item.price, priority:item.priority||0
     })))
     if (orderErr) throw orderErr
+
+    // 若為會員，更新累積消費與訂單次數
+    if (memberId) {
+      const { data: mData } = await db.from('members').select('total_spent,order_count').eq('id', memberId).single()
+      if (mData) {
+        const newSpent = (mData.total_spent||0) + orderTotal
+        const newCount = (mData.order_count||0) + 1
+        const level = newSpent >= 10000 ? 'gold' : newSpent >= 3000 ? 'silver' : 'bronze'
+        await db.from('members').update({ total_spent: newSpent, order_count: newCount, member_level: level }).eq('id', memberId)
+      }
+    }
+
     cart=[]; saveCart(); updateCount()
     document.getElementById('modalInner').innerHTML=`
       <div class="success-view">
@@ -644,6 +676,20 @@ function showToast(msg) { const t=document.getElementById('toast'); t.textConten
 initSlideshow()
 updateCount()
 loadProducts()
+
+// 會員登入狀態 - 更新導覽列 & 預填表單
+db.auth.getSession().then(async ({ data: { session } }) => {
+  if (session) {
+    const { data: m } = await db.from('members').select('nickname,phone,default_address,email').eq('id', session.user.id).single()
+    if (m) {
+      // 更新導覽列按鈕
+      const btn = document.getElementById('memberNavBtn')
+      if (btn) { btn.textContent = m.nickname || '我的帳號'; btn.style.color = 'var(--gold)'; btn.style.borderColor = 'var(--gold)' }
+      // 預填訂單表單
+      window._memberProfile = m
+    }
+  }
+})
 </script>
 </body>
 </html>
