@@ -237,7 +237,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:0 48px
     <div class="section-body" id="orderList"><div class="empty-orders">載入中...</div></div>
   </div>
 
-  <div class="logout-link" onclick="doLogout()">登出</div>
+  <button onclick="doLogout()" style="display:block;margin:24px auto 0;background:none;border:none;font-size:12px;color:var(--muted);letter-spacing:1px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;font-family:inherit" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">登出</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -340,6 +340,10 @@ async function doLogout() {
 }
 
 // ── AUTH STATE ────────────────────────────────────
+// 預設顯示登入畫面，等 session 確認後再切換
+document.getElementById('authWrap').style.display = 'block'
+document.getElementById('memberWrap').classList.remove('show')
+
 db.auth.onAuthStateChange(async (event, session) => {
   if (session) {
     currentUser = session.user
@@ -347,7 +351,6 @@ db.auth.onAuthStateChange(async (event, session) => {
     document.getElementById('memberWrap').classList.add('show')
     await loadMember()
     await loadOrders()
-    // Update last login
     await db.from('members').update({ last_login_at: new Date().toISOString() }).eq('id', currentUser.id)
   } else {
     currentUser = null
